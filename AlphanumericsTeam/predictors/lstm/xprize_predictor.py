@@ -25,7 +25,7 @@ from keras.models import Model
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_PATH = os.path.join(ROOT_DIR, 'data')
-DATA_FILE_PATH = os.path.join(DATA_PATH, 'OxCGRT_latest.csv')
+DATA_FILE_PATH = os.path.join(DATA_PATH, 'OxCGRT_latest_aug.csv')
 ADDITIONAL_CONTEXT_FILE = os.path.join(DATA_PATH, "Additional_Context_Data_Global.csv")
 ADDITIONAL_US_STATES_CONTEXT = os.path.join(DATA_PATH, "US_states_populations.csv")
 ADDITIONAL_UK_CONTEXT = os.path.join(DATA_PATH, "uk_populations.csv")
@@ -44,6 +44,10 @@ NPI_COLUMNS = ['C1_School closing',
                'H3_Contact tracing',
                'H6_Facial Coverings']
 
+ADDITIONAL_FEATURES = ['Holidays',
+                       'density_perkm2'
+                       ]
+
 CONTEXT_COLUMNS = ['CountryName',
                    'RegionName',
                    'GeoID',
@@ -51,12 +55,13 @@ CONTEXT_COLUMNS = ['CountryName',
                    'ConfirmedCases',
                    'ConfirmedDeaths',
                    'Population']
+
 NB_LOOKBACK_DAYS = 21
 NB_TEST_DAYS = 14
 WINDOW_SIZE = 7
 US_PREFIX = "United States / "
-NUM_TRIALS = 1
-LSTM_SIZE = 50
+NUM_TRIALS = 5
+LSTM_SIZE = 64
 MAX_NB_COUNTRIES = 20
 
 
@@ -81,7 +86,7 @@ class XPrizePredictor(object):
 
             # Load model weights
             nb_context = 1  # Only time series of new cases rate is used as context
-            nb_action = len(NPI_COLUMNS)
+            nb_action = len(NPI_COLUMNS + ADDITIONAL_FEATURES)
             self.predictor, _ = self._construct_model(nb_context=nb_context,
                                                       nb_action=nb_action,
                                                       lstm_size=LSTM_SIZE,
@@ -103,6 +108,8 @@ class XPrizePredictor(object):
 
         # Load the npis into a DataFrame, handling regions
         npis_df = self._load_original_data(path_to_ips_file)
+
+        # add additional feature columns
 
         # Prepare the output
         forecast = {"CountryName": [],
@@ -146,7 +153,7 @@ class XPrizePredictor(object):
         initial_action_input = self.country_samples[g]['X_test_action'][-1]
         # Predictions with passed npis
         cnpis_df = npis_df[npis_df.GeoID == g]
-        npis_sequence = np.array(cnpis_df[NPI_COLUMNS])
+        npis_sequence = np.array(cnpis_df[NPI_COLUMNS + ADDITIONAL_FEATURES])
         # Get the predictions with the passed NPIs
         preds = self._roll_out_predictions(self.predictor,
                                            initial_context_input,
@@ -187,7 +194,7 @@ class XPrizePredictor(object):
         df.dropna(subset=['Population'], inplace=True)
 
         #  Keep only needed columns
-        columns = CONTEXT_COLUMNS + NPI_COLUMNS
+        columns = CONTEXT_COLUMNS + NPI_COLUMNS + ADDITIONAL_FEATURES
         df = df[columns]
 
         # Fill in missing values
@@ -250,7 +257,7 @@ class XPrizePredictor(object):
             lambda group: group.interpolate(limit_area='inside')))
         # Drop country / regions for which no number of deaths is available
         df.dropna(subset=['ConfirmedDeaths'], inplace=True)
-        for npi_column in NPI_COLUMNS:
+        for npi_column in (NPI_COLUMNS + ADDITIONAL_FEATURES):
             df.update(df.groupby('GeoID')[npi_column].ffill().fillna(0))
 
     @staticmethod
@@ -293,7 +300,7 @@ class XPrizePredictor(object):
         :return: a dictionary of train and test sets, for each specified country
         """
         context_column = 'PredictionRatio'
-        action_columns = NPI_COLUMNS
+        action_columns = NPI_COLUMNS + ADDITIONAL_FEATURES
         outcome_column = 'PredictionRatio'
         country_samples = {}
         for g in geos:
@@ -432,7 +439,7 @@ class XPrizePredictor(object):
                                                           nb_action=X_action.shape[-1],
                                                           lstm_size=LSTM_SIZE,
                                                           nb_lookback_days=NB_LOOKBACK_DAYS)
-            history = self._train_model(training_model, X_context, X_action, y, epochs=1000, verbose=0)
+            history = self._train_model(training_model, X_context, X_action, y, epochs=5, verbose=1)
             top_epoch = np.argmin(history.history['val_loss'])
             train_loss = history.history['loss'][top_epoch]
             val_loss = history.history['val_loss'][top_epoch]
@@ -445,6 +452,7 @@ class XPrizePredictor(object):
             print('Val Loss:', val_loss)
             print('Test Loss:', test_loss)
 
+        print("############")
         # Gather test info
         country_indeps = []
         country_predss = []
@@ -457,21 +465,28 @@ class XPrizePredictor(object):
             country_indeps.append(country_indep)
             country_predss.append(country_preds)
             country_casess.append(country_cases)
+        print("############", models[0].layers, len(models))
 
         # Compute cases mae
         test_case_maes = []
+        total_loss_dict = {}
         for m in range(len(models)):
             total_loss = 0
+
             for g in geos:
                 true_cases = np.sum(np.array(self.df[self.df.GeoID == g].NewCases)[-NB_TEST_DAYS:])
                 pred_cases = np.sum(country_casess[m][g][-NB_TEST_DAYS:])
                 total_loss += np.abs(true_cases - pred_cases)
+                total_loss_dict[g] = total_loss
+
             test_case_maes.append(total_loss)
 
         # Select best model
         best_model = models[np.argmin(test_case_maes)]
         self.predictor = best_model
         print("Done")
+        from pprint import pprint
+        pprint(total_loss_dict)
         return best_model
 
     @staticmethod
@@ -542,7 +557,7 @@ class XPrizePredictor(object):
         return model, training_model
 
     # Train model
-    def _train_model(self, training_model, X_context, X_action, y, epochs=1, verbose=0):
+    def _train_model(self, training_model, X_context, X_action, y, epochs=1, verbose=1):
         early_stopping = EarlyStopping(patience=20,
                                        restore_best_weights=True)
         history = training_model.fit([X_context, X_action], [y],

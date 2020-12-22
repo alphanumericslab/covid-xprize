@@ -78,7 +78,7 @@ with open(os.path.join(DATA_FILE_PATH, "region_codes.txt"), 'wt') as out:
 
 #pprint(INV_VALID_COUNTRIES)
 #pprint(INV_VALID_REGIONS)
-#pprint(REG_C_MAP)
+pprint(REG_C_MAP)
 
 def pop_areaname(country_name, region_name):
     code  = REG_C_MAP(country_name, region_name)
