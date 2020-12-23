@@ -2,7 +2,7 @@
 
 import os
 import urllib.request
-
+from holiday import applyfunc
 # Suppress noisy Tensorflow debug logging
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
@@ -109,7 +109,12 @@ class XPrizePredictor(object):
         # Load the npis into a DataFrame, handling regions
         npis_df = self._load_original_data(path_to_ips_file)
 
+        print(npis_df.columns)
+
         # add additional feature columns
+        #npis_df.update()
+
+        #npis_df[['Holidays','density_perkm2']] = npis_df.progress_apply(applyFunc, pop_df=pop_df, axis=1)
 
         # Prepare the output
         forecast = {"CountryName": [],
