@@ -1,8 +1,8 @@
 # Copyright 2020 (c) Cognizant Digital Business, Evolutionary AI. All rights reserved. Issued under the Apache 2.0 License.
 
 import os
-import urllib.request
-from holiday import applyfunc
+from util import add_features_df
+
 # Suppress noisy Tensorflow debug logging
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
@@ -109,12 +109,12 @@ class XPrizePredictor(object):
         # Load the npis into a DataFrame, handling regions
         npis_df = self._load_original_data(path_to_ips_file)
 
-        print(npis_df.columns)
+        # add new columns on a copy so as to not currupt the original df
+        back_up = npis_df.copy()
+        back_up["RegionName"] = npis_df["RegionName"].fillna(value="")
+        back_up = add_features_df(back_up)
 
-        # add additional feature columns
-        #npis_df.update()
-
-        #npis_df[['Holidays','density_perkm2']] = npis_df.progress_apply(applyFunc, pop_df=pop_df, axis=1)
+        npis_df[ADDITIONAL_FEATURES] =  back_up[ADDITIONAL_FEATURES]
 
         # Prepare the output
         forecast = {"CountryName": [],
@@ -444,7 +444,7 @@ class XPrizePredictor(object):
                                                           nb_action=X_action.shape[-1],
                                                           lstm_size=LSTM_SIZE,
                                                           nb_lookback_days=NB_LOOKBACK_DAYS)
-            history = self._train_model(training_model, X_context, X_action, y, epochs=5, verbose=1)
+            history = self._train_model(training_model, X_context, X_action, y, epochs=100, verbose=1)
             top_epoch = np.argmin(history.history['val_loss'])
             train_loss = history.history['loss'][top_epoch]
             val_loss = history.history['val_loss'][top_epoch]
@@ -457,7 +457,6 @@ class XPrizePredictor(object):
             print('Val Loss:', val_loss)
             print('Test Loss:', test_loss)
 
-        print("############")
         # Gather test info
         country_indeps = []
         country_predss = []
@@ -470,6 +469,7 @@ class XPrizePredictor(object):
             country_indeps.append(country_indep)
             country_predss.append(country_preds)
             country_casess.append(country_cases)
+
         print("############", models[0].layers, len(models))
 
         # Compute cases mae
@@ -490,8 +490,8 @@ class XPrizePredictor(object):
         best_model = models[np.argmin(test_case_maes)]
         self.predictor = best_model
         print("Done")
-        from pprint import pprint
-        pprint(total_loss_dict)
+        #from pprint import pprint
+        #pprint(total_loss_dict)
         return best_model
 
     @staticmethod

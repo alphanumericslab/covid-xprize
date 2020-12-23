@@ -5,10 +5,10 @@ from dateutil.parser import parse
 import pandas as pd
 import os
 
-ROOT_DIRECTORY = os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                              os.pardir)
-ROOT_DIRECTORY = os.path.abspath(ROOT_DIRECTORY)
+
+ROOT_DIRECTORY = os.path.abspath(os.path.dirname(os.path.realpath(__file__)))
 DATA_FILE_PATH = os.path.join(ROOT_DIRECTORY, "data")
+#print(ROOT_DIRECTORY, "root directory")
 
 def holiday_country(country, date):
 
@@ -55,6 +55,7 @@ def holiday_area(area_code, date):
     else:
         return holiday_country(area_code, date)
 
+
 def holiday_areaname(country_name, region_name, date):
 
     code  = REG_C_MAP[(country_name, region_name)]
@@ -65,58 +66,37 @@ def holiday_areaname(country_name, region_name, date):
         return holiday_country(code, date)
 
 
-def applyFunc(row, pop_df):
-
-    date = row["Date"].to_pydatetime().strftime("%Y%m%d")
-
-    holiday_areaname(row["CountryName"], row["RegionName"], date)
-
-    if row["Jurisdiction"] == "NAT_TOTAL":
-        if row["CountryCode"] not in VALID_COUNTRIES:
-            res = [None, None, None, None]
-        else:
-            res = [holiday_area(row["CountryCode"], date)]
-            res.extend(pop_df[pop_df["Code"]==row["CountryCode"]].values.tolist()[0][2:5])
-        return pd.Series(res)
-
-    if row["Jurisdiction"] == "STATE_TOTAL":
-        if row["RegionCode"] not in VALID_REGIONS:
-            res = [None, None, None, None]
-        else:
-            res = [holiday_area(row["RegionCode"], date)]
-            res.extend(pop_df[pop_df["Code"]==row["RegionCode"]].values.tolist()[0][2:5])
-        return pd.Series(res)
-
 def get_pop_df():
-    DATA_URL = os.path.join(DATA_FILE_PATH, "pop.csv")
+    DATA_URL = os.path.join(DATA_FILE_PATH, "pop_t.csv")
     pop_df = pd.read_csv(DATA_URL)
     return pop_df
 
 
 def applyFunc(row, pop_df):
 
+
     date = row["Date"].to_pydatetime().strftime("%Y%m%d")
+   # date = row["Date"]
+    cname = row["CountryName"]
+    rname = row["RegionName"]
+    pop_df["RegionName"] = pop_df["RegionName"].fillna(value="")
 
-    if row["Jurisdiction"] == "NAT_TOTAL":
-        if row["CountryCode"] not in VALID_COUNTRIES:
-            res = [None, None, None, None]
-        else:
-            res = [holiday_area(row["CountryCode"], date)]
-            res.extend(pop_df[pop_df["Code"]==row["CountryCode"]].values.tolist()[0][2:5])
-        return pd.Series(res)
+    #print( cname, rname, date , "---")
+    #print( pop_df["CountryName"], pop_df["RegionName"] , "---")
 
-    if row["Jurisdiction"] == "STATE_TOTAL":
-        if row["RegionCode"] not in VALID_REGIONS:
-            res = [None, None, None, None]
-        else:
-            res = [holiday_area(row["RegionCode"], date)]
-            res.extend(pop_df[pop_df["Code"]==row["RegionCode"]].values.tolist()[0][2:5])
-        return pd.Series(res)
+    pop = pop_df[(pop_df["CountryName"] == cname) &
+                  (pop_df["RegionName"] == rname)
+                  ].iloc[0][2]
+
+    res = [holiday_areaname(cname, rname, date), pop]
+    return pd.Series(res)
+
 
 def add_features_df(df):
     # Get population data
     pop_df = get_pop_df()
-    df[['Holidays', 'density_perkm2']] = df.progress_apply(applyFunc, pop_df=pop_df, axis=1)
+    df[['Holidays', 'density_perkm2']] = df.apply(applyFunc, pop_df=pop_df, axis=1)
+    return df
 
 
 
