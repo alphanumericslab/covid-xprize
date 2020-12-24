@@ -4,7 +4,8 @@ clc
 
 % parameters
 LINEAR = false; % perform LINEAR estimate or not
-ARX = true; % perform ARX estimate or not
+LASSO = true; % perform LINEAR estimate or not
+ARX = false; % perform ARX estimate or not
 LSTM = false; % perform LSTM or not
 LSTM_ON_NEW_CASES = false; % perform LSTM over new cases or not
 LSTM_BASELINE_RATE = false; % perform LSTM over baseline lambda or not
@@ -20,7 +21,7 @@ lambda_baseline_wlen = 7; % window length used for lambda baseline calculation
 ar_order = 24; % Autoregressive model
 ar_learninghistory = 120; % Autoregressive model estimation history look back
 predict_ahead_num_days = 21; % number of days to predict ahead
-Rt_wlen = 14; % Reproduction rate estimation window
+Rt_wlen = 7; % Reproduction rate estimation window
 Rt_generation_period = 3; % The generation period used for calculating the reproduction number
 lambda_threshold = 0.06; % The threshold for the maximum absolute value of the reproduction rates exponent lambda
 filter_type = 'MOVINGAVERAGE-CAUSAL'; % 'MOVINGAVERAGE-NONCAUSAL' or 'MOVINGAVERAGE-CAUSAL' ' or 'MOVINGMEDIAN' or 'TIKHONOV'; % The last two call functions from the OSET package (oset.ir). Note: 'MOVINGAVERAGE-CAUSAL' is the contest standard and only evaluation algorithm
@@ -76,7 +77,7 @@ GeoID = strcat(string(AllCountryCodes), string(AllRegionCodes));
 NumGeoLocations = length(CountryAndRegionList); % Number of country-region pairs
 
 % FEATURE EXTRACTION (Different methods for calculating the reproduction rate)
-for k = 215 : 225 %122 : 125%225 %1 : NumGeoLocations
+for k = 215 : 250 %122 : 125%225 %1 : NumGeoLocations
     k
     switch start_date_criterion
         case 'MIN_CASE_BASED'
@@ -300,6 +301,18 @@ for k = 215 : 225 %122 : 125%225 %1 : NumGeoLocations
         %     LambdaHatLinear = LambdaHatLinear + lambda_vector(numTimeStepsTrain) - LambdaHatLinear(numTimeStepsTrain); % correct offset
     end
     
+    % Method: LASSO
+    if(LASSO)
+        [B_LASSO, FitInfo] = lasso(x_data_train, y_data_train, 'CV',10);
+        idxLambda1SE = FitInfo.Index1SE;
+        coef = B_LASSO(:, idxLambda1SE);
+        coef0 = FitInfo.Intercept(idxLambda1SE);
+        y_pred_lasso = x_data_test*coef + coef0;
+        LambdaHatLASSO = [y_data_train ; y_pred_lasso]';
+    end
+    %     lassoPlot(B_LASSO, FitInfo,'PlotType','CV');
+    %     legend('show') % Show legend
+    
     % Method: Policy variation tracker
     LambdaHatPolicyTrackerIncrements = zeros(size(InterventionPlansAvg'));
     Len = length(InterventionPlansAvg);
@@ -464,6 +477,13 @@ for k = 215 : 225 %122 : 125%225 %1 : NumGeoLocations
         LambdaHatLinear(I_neg) = -lambda_threshold;
     end
     
+    if(LASSO)
+        I_pos = LambdaHatLASSO > lambda_threshold & counter > numTimeStepsTrain;
+        I_neg = LambdaHatLASSO < -lambda_threshold & counter > numTimeStepsTrain;
+        LambdaHatLASSO(I_pos) = lambda_threshold;
+        LambdaHatLASSO(I_neg) = -lambda_threshold;
+    end
+    
     if(ARX)
         I_pos = LambdaHatARX > lambda_threshold & counter > numTimeStepsTrain;
         I_neg = LambdaHatARX < -lambda_threshold & counter > numTimeStepsTrain;
@@ -506,6 +526,10 @@ for k = 215 : 225 %122 : 125%225 %1 : NumGeoLocations
         NewCasesEstimateLinear = [NewCasesSmoothed(1 : numTimeStepsTrain) ; NewCasesEstimateLastTrainValue*exp(CumLambdaHatLinear)];
     end
     
+    if(LASSO)
+        CumLambdaHatLASSO = cumsum(LambdaHatLASSO(numTimeStepsTrain + 1 : end))';
+        NewCasesEstimateLASSO = [NewCasesSmoothed(1 : numTimeStepsTrain) ; NewCasesEstimateLastTrainValue*exp(CumLambdaHatLASSO)];
+    end
     if(ARX)
         CumLambdaHatARX = cumsum(LambdaHatARX(numTimeStepsTrain + 1 : end))';
         NewCasesEstimateARX = [NewCasesSmoothed(1 : numTimeStepsTrain) ; NewCasesEstimateLastTrainValue*exp(CumLambdaHatARX)];
@@ -560,6 +584,10 @@ for k = 215 : 225 %122 : 125%225 %1 : NumGeoLocations
                 plot(dn , LambdaHatLinear, 'linewidth', 3); lgn = cat(2, lgn, {'LambdaHatLinear'});
             end
             
+            if(LASSO)
+                plot(dn , LambdaHatLASSO, 'linewidth', 3); lgn = cat(2, lgn, {'LambdaHatLASSO'});
+            end
+            
             if(ARX)
                 plot(dn , LambdaHatARX, 'linewidth', 3); lgn = cat(2, lgn, {'LambdaHatARX'});
             end
@@ -603,6 +631,9 @@ for k = 215 : 225 %122 : 125%225 %1 : NumGeoLocations
             %         plot(dn, PointWiseFit3); lgn = cat(2, lgn, {'PointWiseFit3'});
             if(LINEAR)
                 plot(dn, NewCasesEstimateLinear, 'Linewidth', 2); lgn = cat(2, lgn, {'NewCasesEstimateLinear'});
+            end
+            if(LASSO)
+                plot(dn, NewCasesEstimateLASSO, 'Linewidth', 2); lgn = cat(2, lgn, {'NewCasesEstimateLASSO'});
             end
             if(ARX)
                 plot(dn, NewCasesEstimateARX, 'Linewidth', 2); lgn = cat(2, lgn, {'NewCasesEstimateARX'});
