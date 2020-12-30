@@ -4,7 +4,7 @@ clc
 
 % parameters
 LINEAR = false; % perform LINEAR estimate or not
-LASSO = true; % perform LINEAR estimate or not
+LASSO = false; % perform LINEAR estimate or not
 ARX = false; % perform ARX estimate or not
 LSTM = false; % perform LSTM or not
 LSTM_ON_NEW_CASES = false; % perform LSTM over new cases or not
@@ -77,7 +77,7 @@ GeoID = strcat(string(AllCountryCodes), string(AllRegionCodes));
 NumGeoLocations = length(CountryAndRegionList); % Number of country-region pairs
 
 % FEATURE EXTRACTION (Different methods for calculating the reproduction rate)
-for k = 215 : 250 %122 : 125%225 %1 : NumGeoLocations
+for k = 219 : 225 %122 : 125%225 %1 : NumGeoLocations
     k
     switch start_date_criterion
         case 'MIN_CASE_BASED'
@@ -186,6 +186,46 @@ for k = 215 : 250 %122 : 125%225 %1 : NumGeoLocations
     Lambda2Baseline = BaseLine1(Lambda2Baseline, lambda_baseline_wlen, 'mn');
     
     [Rt3, Amp3, Lambda3, PointWiseFit3] = Rt_expfit3(NewCasesSmoothed, Rt_wlen, 1);
+    
+    s_init = [NewCasesFilled(1) ; Lambda2(1)];
+    w_bar = [0 ; 0];
+    v_bar = 0;
+    Q_w = diag([(10)^2, (1e-2)^2]);
+    Ps_init = 100 * Q_w;
+    R_v = (10)^2;
+    beta = 0.9;
+    gamma = 0.9;
+    inv_monitor_len = 20;
+    time_scale = 1;
+    lambda_forgetting_factor = 0.9;
+    sigma = 0.1;
+    params = [time_scale, lambda_forgetting_factor, sigma];
+    [S_MINUS, S_PLUS, P_MINUS, P_PLUS, K_GAIN, S_SMOOTH, P_SMOOTH, innovations, rho] = Rt_EKF(NewCasesFilled(:)', s_init, params, w_bar, v_bar, Ps_init, Q_w, R_v, beta, gamma, inv_monitor_len);
+    
+    figure
+    plot(rho);
+    grid
+    
+    figure
+    hold on
+    errorbar(S_SMOOTH(1, :), 4*sqrt(squeeze(P_PLUS(1, 1, :))));
+    plot(NewCases);
+    plot(NewCasesSmoothed);
+    plot(S_MINUS(1, :));
+    plot(S_PLUS(1, :));
+%     plot(S_SMOOTH(1, :));
+    legend('Smooth', 'NewCases', 'NewCasesSmoothed', 'Minus', 'Plus');
+    grid
+    
+% % %     figure
+% % %     hold on
+% % %     errorbar(S_SMOOTH(2, :), sqrt(squeeze(P_PLUS(2, 2, :))));
+% % %     plot(Lambda2);
+% % %     plot(S_MINUS(2, :));
+% % %     plot(S_PLUS(2, :));
+% % %     plot(S_SMOOTH(2, :));
+% % %     legend('Smooth', 'Lambda', 'Minus', 'Plus');
+% % %     grid
     
     % Generate feature vectors based on intervention plans
     numTimeStepsTrain = size(InterventionPlans, 1) - predict_ahead_num_days;%floor(0.65*numel(y_data));
@@ -303,7 +343,7 @@ for k = 215 : 250 %122 : 125%225 %1 : NumGeoLocations
     
     % Method: LASSO
     if(LASSO)
-        [B_LASSO, FitInfo] = lasso(x_data_train, y_data_train, 'CV',10);
+        [B_LASSO, FitInfo] = lasso(x_data_train, y_data_train, 'CV',30);
         idxLambda1SE = FitInfo.Index1SE;
         coef = B_LASSO(:, idxLambda1SE);
         coef0 = FitInfo.Intercept(idxLambda1SE);
@@ -360,6 +400,10 @@ for k = 215 : 250 %122 : 125%225 %1 : NumGeoLocations
             sequenceInputLayer(numFeatures, 'Normalization', 'rescale-zero-one')
             %
             %             fullyConnectedLayer(numFeatures)
+            lstmLayer(numFeatures)
+            lstmLayer(numFeatures)
+            lstmLayer(numFeatures)
+            lstmLayer(numFeatures)
             lstmLayer(numFeatures)
             %             fullyConnectedLayer(numHiddenUnits)
             %             lstmLayer(numHiddenUnits)
