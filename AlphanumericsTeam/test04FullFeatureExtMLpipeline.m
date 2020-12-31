@@ -12,7 +12,7 @@ LSTM_BASELINE_RATE = false; % perform LSTM over baseline lambda or not
 SVM = false; % perform SVM or not
 plot_figures = true; % plot per-region/country plots or not
 
-start_date_criterion = 'DATE_BASED'; %'MIN_CASE_BASED'; % 'MIN_CASE_BASED'/'DATE_BASED'/'DATA_OR_MIN_CASE_BASED'
+start_date_criterion = 'MIN_CASE_BASED'; %'MIN_CASE_BASED'; % 'MIN_CASE_BASED'/'DATE_BASED'/'DATA_OR_MIN_CASE_BASED'
 min_cases = 100; % the minimum cases start date for processing each region/country
 start_date = 20200101; % start date
 end_date = 20201225; % end date
@@ -77,7 +77,7 @@ GeoID = strcat(string(AllCountryCodes), string(AllRegionCodes));
 NumGeoLocations = length(CountryAndRegionList); % Number of country-region pairs
 
 % FEATURE EXTRACTION (Different methods for calculating the reproduction rate)
-for k = 219 : 225 %122 : 125%225 %1 : NumGeoLocations
+for k = 219 : 219 %122 : 125%225 %1 : NumGeoLocations
     k
     switch start_date_criterion
         case 'MIN_CASE_BASED'
@@ -187,45 +187,78 @@ for k = 219 : 225 %122 : 125%225 %1 : NumGeoLocations
     
     [Rt3, Amp3, Lambda3, PointWiseFit3] = Rt_expfit3(NewCasesSmoothed, Rt_wlen, 1);
     
-    s_init = [NewCasesFilled(1) ; Lambda2(1)];
+    NewCasesSkipped = NewCasesFilled;
+    % NewCasesSkipped(end - 10 : end) = nan; % for forecasting
+    
+    s_init = [NewCasesSkipped(1) ; Lambda2(1)];
     w_bar = [0 ; 0];
     v_bar = 0;
-    Q_w = diag([(10)^2, (1e-2)^2]);
+    Q_w = diag([(250)^2, (1e-2)^2]);
     Ps_init = 100 * Q_w;
     R_v = (10)^2;
     beta = 0.9;
-    gamma = 0.9;
+    gamma = 0.995;
     inv_monitor_len = 20;
     time_scale = 1;
     lambda_forgetting_factor = 0.9;
-    sigma = 0.1;
+    sigma = 10.1;
     params = [time_scale, lambda_forgetting_factor, sigma];
-    [S_MINUS, S_PLUS, P_MINUS, P_PLUS, K_GAIN, S_SMOOTH, P_SMOOTH, innovations, rho] = Rt_EKF(NewCasesFilled(:)', s_init, params, w_bar, v_bar, Ps_init, Q_w, R_v, beta, gamma, inv_monitor_len);
+    order = 1;
+    [S_MINUS, S_PLUS, P_MINUS, P_PLUS, K_GAIN, S_SMOOTH, P_SMOOTH, innovations, rho] = Rt_EKF(NewCasesSkipped(:)', s_init, params, w_bar, v_bar, Ps_init, Q_w, R_v, beta, gamma, inv_monitor_len, order);
+    order = 2;
+    [S_MINUS2, S_PLUS2, P_MINUS2, P_PLUS2, K_GAIN2, S_SMOOTH2, P_SMOOTH2, innovations2, rho2] = Rt_EKF(NewCasesSkipped(:)', s_init, params, w_bar, v_bar, Ps_init, Q_w, R_v, beta, gamma, inv_monitor_len, order);
     
     figure
     plot(rho);
     grid
     
+    lgn = {};
+    ksigma = 3.0;
+    %     options.handle = figure;
     figure
     hold on
-    errorbar(S_SMOOTH(1, :), 4*sqrt(squeeze(P_PLUS(1, 1, :))));
-    plot(NewCases);
-    plot(NewCasesSmoothed);
-    plot(S_MINUS(1, :));
-    plot(S_PLUS(1, :));
-%     plot(S_SMOOTH(1, :));
-    legend('Smooth', 'NewCases', 'NewCasesSmoothed', 'Minus', 'Plus');
+    %     errorbar(S_MINUS(1, :), ksigma*sqrt(squeeze(P_MINUS(1, 1, :)))); lgn = cat(2, lgn, {'S_MINUS'});
+    %     errorbar(S_PLUS(1, :), ksigma*sqrt(squeeze(P_PLUS(1, 1, :)))); lgn = cat(2, lgn, {'EKF'});
+    %     errorbar(S_PLUS2(1, :), ksigma*sqrt(squeeze(P_PLUS2(1, 1, :)))); lgn = cat(2, lgn, {'EKF2'});
+    %     plot_areaerrorbar(S_PLUS(1, :), ksigma*sqrt(squeeze(P_PLUS(1, 1, :))), options); lgn = cat(2, lgn, {'EKF'});
+    errorbar(S_SMOOTH(1, :), ksigma*sqrt(squeeze(P_SMOOTH(1, 1, :)))); lgn = cat(2, lgn, {'\pm 3\sigma EKS Envelopes'});
+    %     errorbar(S_SMOOTH2(1, :), ksigma*sqrt(squeeze(P_SMOOTH2(1, 1, :)))); lgn = cat(2, lgn, {'EKS2'});
+    %     plot_areaerrorbar(S_SMOOTH(1, :), ksigma*sqrt(squeeze(P_SMOOTH(1, 1, :))), options); lgn = cat(2, lgn, {'EKS'});
+    plot(NewCases, 'linewidth', 1); lgn = cat(2, lgn, {'New Cases'});
+    plot(NewCasesSmoothed, 'linewidth', 3); lgn = cat(2, lgn, {'7-Day MA'});
+    plot(S_SMOOTH(1, :), 'linewidth', 3); lgn = cat(2, lgn, {'EKS'});
+    legend(lgn);%, 'interpreter', 'none');
+    title(CountryAndRegionList(k), 'interpreter', 'none');
+    xlabel('Days since 100th case');
+    ylabel('Number of new cases');
+    set(gca, 'fontsize', 18);
+    set(gca, 'box', 'on');
+    axis tight
     grid
     
-% % %     figure
-% % %     hold on
-% % %     errorbar(S_SMOOTH(2, :), sqrt(squeeze(P_PLUS(2, 2, :))));
-% % %     plot(Lambda2);
-% % %     plot(S_MINUS(2, :));
-% % %     plot(S_PLUS(2, :));
-% % %     plot(S_SMOOTH(2, :));
-% % %     legend('Smooth', 'Lambda', 'Minus', 'Plus');
-% % %     grid
+    lgn = {};
+    ksigma = 1.0;
+    figure
+    hold on
+    errorbar(S_SMOOTH(2, :), ksigma*sqrt(squeeze(P_SMOOTH(2, 2, :)))); lgn = cat(2, lgn, {'\pm 3\sigma EKS Envelopes'});
+    %     errorbar(S_MINUS2(2, :), ksigma*sqrt(squeeze(P_MINUS2(2, 2, :)))); lgn = cat(2, lgn, {'S_MINUS2'});
+    %     errorbar(S_PLUS(2, :), ksigma*sqrt(squeeze(P_PLUS(2, 2, :)))); lgn = cat(2, lgn, {'S_PLUS'});
+    %     errorbar(S_PLUS2(2, :), ksigma*sqrt(squeeze(P_PLUS2(2, 2, :)))); lgn = cat(2, lgn, {'S_PLUS2'});
+    % errorbar(S_SMOOTH(2, :), ksigma*sqrt(squeeze(P_SMOOTH(2, 2, :)))); lgn = cat(2, lgn, {'S_SMOOTH'});
+    % errorbar(S_SMOOTH2(2, :), ksigma*sqrt(squeeze(P_SMOOTH2(2, 2, :)))); lgn = cat(2, lgn, {'S_SMOOTH2'});
+    plot(Lambda1, 'linewidth', 3); lgn = cat(2, lgn, {'Linear Fit'});
+    plot(Lambda2, 'linewidth', 3); lgn = cat(2, lgn, {'New case ratios geometric mean'});
+    plot(Lambda3, 'linewidth', 3); lgn = cat(2, lgn, {'Least Squares'});
+    plot(S_SMOOTH(2, :), 'linewidth', 3); lgn = cat(2, lgn, {'EKS'});
+    %     plot(Lambda2Smoothed, 'linewidth', 3); lgn = cat(2, lgn, {'Lambda2Smoothed'});
+    legend(lgn);%, 'interpreter', 'none');
+    title(CountryAndRegionList(k), 'interpreter', 'none');
+    xlabel('Days since 100th case');
+    ylabel('\lambda_k');
+    set(gca, 'fontsize', 18);
+    set(gca, 'box', 'on');
+    axis tight
+    grid
     
     % Generate feature vectors based on intervention plans
     numTimeStepsTrain = size(InterventionPlans, 1) - predict_ahead_num_days;%floor(0.65*numel(y_data));
